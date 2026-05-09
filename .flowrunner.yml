@@ -58,8 +58,8 @@ jobs:
     timeout: 300
     steps:
       - echo "Lint starting (parallel with build)"
-      - ls -la
-      - 'for f in *.md *.yml *.yaml; do [ -f "$f" ] && echo "found $f"; done'
+      - uname -a
+      - cat /etc/os-release
       - echo "Lint complete (smoke pipeline — no real linter)"
 
   # -----------------------------------------------------------------
