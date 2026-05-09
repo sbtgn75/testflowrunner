@@ -58,7 +58,8 @@ jobs:
     timeout: 300
     steps:
       - echo "Lint starting (parallel with build)"
-      - 'for f in *.md *.yml *.yaml 2>/dev/null; do [ -f "$f" ] && echo "found $f"; done || true'
+      - ls -la
+      - 'for f in *.md *.yml *.yaml; do [ -f "$f" ] && echo "found $f"; done'
       - echo "Lint complete (smoke pipeline — no real linter)"
 
   # -----------------------------------------------------------------
