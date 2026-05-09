@@ -1,0 +1,97 @@
+# .flowrunner.yml — example pipeline for FlowRunner
+#
+# Place at the ROOT of your repository (not in a subdirectory).
+# FlowRunner's worker fetches this exact file from
+# https://raw.githubusercontent.com/<owner>/<repo>/<sha>/.flowrunner.yml
+# at the commit SHA captured by the push webhook, parses it with
+# js-yaml using FAILSAFE_SCHEMA, validates the structure, and
+# creates one Job record per top-level entry under `jobs`.
+#
+# Constraints enforced at parse time:
+#   - max 10 jobs per file
+#   - pipeline-level and per-job timeouts <= 3600 seconds (1 hour)
+#   - job IDs alphanumeric + hyphen only, unique within the file
+#   - every entry in `needs` must resolve to a job in this file
+#   - the dependency graph must be acyclic
+#
+# A push that creates a commit with NO .flowrunner.yml at the repo
+# root is silently dropped (no run created, no error). A file that
+# violates a constraint above produces a `config_error` Run with a
+# specific validation message visible in the UI.
+
+# Pipeline-level wall-clock timeout in seconds. The whole pipeline
+# is killed when this elapses regardless of job state. Default 3600.
+timeout: 1800
+
+jobs:
+  # -----------------------------------------------------------------
+  # build — runs first; no dependencies. Demonstrates env vars,
+  # multi-step shell execution inside node:20-alpine, and writing
+  # an artifact to disk inside the container. (The artifact stays
+  # inside the container; FlowRunner does not move artifacts between
+  # jobs in v1 — each job gets a fresh container.)
+  # -----------------------------------------------------------------
+  build:
+    image: node:20-alpine
+    timeout: 600
+    env:
+      NODE_ENV: development
+      BUILD_VERSION: "1.0.0"
+    steps:
+      - echo "Build starting"
+      - node --version
+      - npm --version
+      - 'echo "BUILD_VERSION=$BUILD_VERSION NODE_ENV=$NODE_ENV"'
+      - mkdir -p dist
+      - 'echo "artifact-$BUILD_VERSION" > dist/output.txt'
+      - cat dist/output.txt
+      - echo "Build complete"
+
+  # -----------------------------------------------------------------
+  # lint — also no dependencies. Runs in PARALLEL with build the
+  # moment the run starts (subject to MAX_CONCURRENT_JOBS, which is
+  # 2 by default in local dev). This demonstrates the DAG scheduler:
+  # multiple jobs without `needs` execute concurrently.
+  # -----------------------------------------------------------------
+  lint:
+    image: alpine:3.20
+    timeout: 300
+    steps:
+      - echo "Lint starting (parallel with build)"
+      - 'for f in *.md *.yml *.yaml 2>/dev/null; do [ -f "$f" ] && echo "found $f"; done || true'
+      - echo "Lint complete (smoke pipeline — no real linter)"
+
+  # -----------------------------------------------------------------
+  # test — depends on BOTH build and lint. The scheduler waits for
+  # every entry in `needs` to reach status `succeeded` before this
+  # job starts. If either upstream job ends in any non-succeeded
+  # state, this job is automatically transitioned to `skipped` and
+  # so is anything downstream of it (transitive skip).
+  # -----------------------------------------------------------------
+  test:
+    image: node:20-alpine
+    timeout: 600
+    needs: [build, lint]
+    env:
+      NODE_ENV: test
+    steps:
+      - echo "Tests starting (after build + lint succeeded)"
+      - 'node -e "console.log(1 + 1 === 2)"'
+      - 'node -e "if (1 + 1 !== 2) { process.exit(1) }"'
+      - echo "All tests green"
+
+  # -----------------------------------------------------------------
+  # deploy — runs only after test succeeds. In a real pipeline this
+  # is where you'd push an image to a registry, run a deployment
+  # script, or update a manifest. Here it just simulates the work.
+  # -----------------------------------------------------------------
+  deploy:
+    image: alpine:3.20
+    timeout: 300
+    needs: [test]
+    env:
+      DEPLOY_ENV: staging
+    steps:
+      - 'echo "Deploying to $DEPLOY_ENV..."'
+      - sleep 2
+      - echo "Pipeline green"
